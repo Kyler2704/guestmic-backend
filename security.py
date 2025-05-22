@@ -2,7 +2,7 @@
 from flask import Blueprint, request, jsonify
 from firebase_admin import auth as fb_auth, firestore
 from datetime import datetime
-from your_auth_helper import verify_token  # your existing helper
+from auth_helper.py import verify_token  # your existing helper
 from your_db import db                     # your Firestore client
 
 security_bp = Blueprint('security', __name__)
