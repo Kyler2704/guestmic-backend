@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GuestMic Recorder</title>
+  <style>
+    /* Page Reset & Background */
+    body {
+      margin: 0;
+      background: #111;
+      color: #EEE;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    /* Card Container */
+    .recorder-card {
+      background: #000;
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+
+    /* Logo */
+    .recorder-card img.logo {
+      display: block;
+      margin: 0 auto 1.5rem;
+      height: 60px;
+      width: auto;
+    }
+
+    /* Title */
+    .recorder-card h1 {
+      text-align: center;
+      font-size: 1.75rem;
+      margin-bottom: 2rem;
+      color: #FFD97F;
+    }
+
+    /* Form Groups */
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+    }
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #222;
+      color: #EEE;
+      font-size: 1rem;
+    }
+
+    /* Buttons */
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 999px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      margin-top: 1rem;
+    }
+    .btn-start {
+      background: #FFD97F;
+      color: #000;
+    }
+    .btn-start:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 8px rgba(255,217,127,0.8);
+    }
+    .btn-stop {
+      background: #333;
+      color: #FFF;
+    }
+    .btn-stop:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 8px rgba(255,255,255,0.4);
+    }
+  </style>
+</head>
+<body>
+  <div class="recorder-card">
+    <!-- Logo -->
+    <img
+  src="static/GuestMic_Logo_Transparent.png"
+  alt="GuestMic Logo"
+  style="max-height: 150px; width: auto; display: block; margin: 0 auto 1.5rem;"
+/>
+
+    <!-- Title -->
+    <h1>GuestMic Recorder</h1>
+
+    <!-- Name Input -->
+    <div class="form-group">
+      <label for="guest-name">Your Name</label>
+      <input type="text" id="guest-name" placeholder="e.g. Alex">
+    </div>
+
+    <!-- Microphone Select -->
+    <div class="form-group">
+      <label for="mic-select">Select Microphone</label>
+      <select id="mic-select">
+        <option>Default - Microphone</option>
+        <!-- your script will populate actual devices here -->
+      </select>
+    </div>
+
+    <!-- Control Buttons -->
+    <button id="start-btn" class="btn btn-start">Start Recording</button>
+    <button id="stop-btn" class="btn btn-stop" disabled>Stop Recording</button>
+  </div>
+
+  <!-- Your existing recorder logic -->
+  <script>
+    // Example starter: populate mics & wire up start/stop
+    // navigator.mediaDevices.enumerateDevices().then(...);
+    // document.getElementById('start-btn').onclick = ...
+    // document.getElementById('stop-btn').onclick = ...
+  </script>
+</body>
+</html>
