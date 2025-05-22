@@ -1,8 +1,9 @@
 # backend/email_notifications.py
 from flask import Blueprint, request, jsonify
 from firebase_admin import auth as fb_auth
-from your_auth_helper import verify_token     # your existing token verifier
-from your_db import db                         # your Firestore client
+from fb_admin import db, firebase_auth
+from auth_helper import verify_token
+
 
 notifications_bp = Blueprint('notifications', __name__)
 
