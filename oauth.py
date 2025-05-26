@@ -22,7 +22,7 @@ def login_oauth():
     )
     auth_url, state = flow.authorization_url(
         prompt='consent',
-        include_granted_scopes=True
+        include_granted_scopes='true'      # must be 'true' or 'false' lowercase
     )
     session.permanent = True
     session['state'] = state
