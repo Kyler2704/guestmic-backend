@@ -42,7 +42,7 @@ def oauth2callback():
         'client_secret': creds.client_secret,
         'scopes': creds.scopes
     }
-    return redirect('https://guestmic.web.app/dashboard.html')
+    return redirect('https://guestmic.web.app/GuestMicDashboard.html')
 
 @oauth_bp.route('/drive-status', methods=['GET'])
 def drive_status():
