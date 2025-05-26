@@ -63,7 +63,7 @@ def oauth2callback():
     current_app.logger.debug("OAuth credentials saved in session.")
 
     # Redirect to your front-end dashboard
-    return redirect('https://guestmic.web.app/dashboard.html')
+    return redirect('https://guestmic.web.app/GuestMicDashboard.html')
 
 
 @oauth_bp.route('/drive-status', methods=['GET'])
