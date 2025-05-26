@@ -16,4 +16,4 @@ class Config:
     # OAuth2 settings
     SCOPES = [os.getenv('OAUTH2_SCOPE', '')]
     CLIENT_SECRETS_FILE = os.getenv('CLIENT_SECRET', '')
-    REDIRECT_URI = "https://guestmic-backend.onrender.com/auth/google/callback"
+    REDIRECT_URI = os.getenv('REDIRECT_URI', '')
