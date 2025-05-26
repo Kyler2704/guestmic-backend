@@ -1,16 +1,10 @@
 import os
 from flask import Flask
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
 from static_routes import static_bp
-from oauth import oauth_bp
-from links import links_bp
-from profile import profile_bp
-from guest import guest_bp
-from upload import upload_bp
-from errors import errors_bp
-from security import security_bp
-from email_notifications import notifications_bp
+# … other blueprints …
 
 def create_app():
     app = Flask(
@@ -19,33 +13,40 @@ def create_app():
         template_folder='../frontend'
     )
 
-    # 1) Load everything from your Config class
+    # base config
     app.config.from_object(Config)
 
-    # 2) Override (or set) SECRET_KEY from env, with a dev fallback
+    # override SECRET_KEY
     app.config['SECRET_KEY'] = os.environ.get(
         'FLASK_SECRET_KEY',
         'dev-secret-guestmic'
     )
 
-    # 3) Enable CORS, register blueprints, etc.
-    CORS(app)
+    # allow cross-site session cookies
+    app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+    app.config['SESSION_COOKIE_SECURE']   = True
+    # app.config['SESSION_COOKIE_DOMAIN']  = 'guestmic.onrender.com'
 
+    # trust Render proxy headers (optional)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+    # CORS + credentials
+    CORS(
+        app,
+        supports_credentials=True,
+        origins=["https://guestmic.web.app"]
+    )
+
+    # register all your blueprints
     app.register_blueprint(static_bp)
-    app.register_blueprint(oauth_bp)
-    app.register_blueprint(links_bp)
-    app.register_blueprint(profile_bp)
-    app.register_blueprint(guest_bp)
-    app.register_blueprint(upload_bp)
-    app.register_blueprint(errors_bp)
-    app.register_blueprint(security_bp)
-    app.register_blueprint(notifications_bp)
+    # … etc …
 
     return app
 
-# Expose a module-level `app` for Render’s WSGI
+# export for WSGI
 app = create_app()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
