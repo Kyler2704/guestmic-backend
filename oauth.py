@@ -2,14 +2,14 @@ from flask import Blueprint, session, redirect, request, jsonify
 from google_auth_oauthlib.flow import Flow
 from config import Config
 
-# Set the correct prefix so all routes live under /auth/google
+# ⬅️ Set the url_prefix here so all routes are under /auth/google
 oauth_bp = Blueprint('oauth_bp', __name__, url_prefix='/auth/google')
 
 SCOPES = Config.SCOPES
 CLIENT_SECRETS_FILE = Config.CLIENT_SECRETS_FILE
-REDIRECT_URI = Config.REDIRECT_URI  # Should match Google Console exactly
+REDIRECT_URI = Config.REDIRECT_URI
 
-@oauth_bp.route('', methods=['GET'])
+@oauth_bp.route('', methods=['GET'])  # ⬅️ This becomes /auth/google
 def login_oauth():
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
@@ -20,7 +20,7 @@ def login_oauth():
     session['state'] = state
     return redirect(auth_url)
 
-@oauth_bp.route('/callback', methods=['GET'])
+@oauth_bp.route('/callback', methods=['GET'])  # ⬅️ This becomes /auth/google/callback
 def oauth2callback():
     state = session.get('state')
     if not state:
@@ -33,7 +33,6 @@ def oauth2callback():
         state=state
     )
     flow.fetch_token(authorization_response=request.url)
-
     creds = flow.credentials
     session['credentials'] = {
         'token': creds.token,
@@ -43,9 +42,9 @@ def oauth2callback():
         'client_secret': creds.client_secret,
         'scopes': creds.scopes
     }
-
     return redirect('/dashboard')
 
 @oauth_bp.route('/drive-status', methods=['GET'])
 def drive_status():
     return jsonify({'connected': 'credentials' in session})
+
