@@ -16,6 +16,7 @@ from email_notifications import notifications_bp
 
 def create_app():
     app = Flask(__name__, static_folder='../frontend', template_folder='../frontend')
+    app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-guestmic")
     # Load core config (SECRET_KEY, session settings, max upload size)
     app.config.from_object(Config)
     CORS(app)
