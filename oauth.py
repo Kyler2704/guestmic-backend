@@ -10,23 +10,19 @@ SCOPES               = Config.SCOPES
 CLIENT_SECRETS_FILE  = Config.CLIENT_SECRETS_FILE
 REDIRECT_URI         = Config.REDIRECT_URI  # e.g. "https://guestmic-backend.onrender.com/auth/google/callback"
 
-@oauth_bp.route('', methods=['GET'])
+@oauth_bp.route('/auth/google')
 def login_oauth():
-    """
-    Step 1: Redirect user to Google's OAuth consent screen.
-    """
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
     auth_url, state = flow.authorization_url(
-        prompt='consent',
-        include_granted_scopes='true'      # must be 'true' or 'false' lowercase
+        access_type='offline',
+        include_granted_scopes=True,  # ← preserve all scopes
+        prompt='consent'
     )
-    session.permanent = True
     session['state'] = state
-    current_app.logger.debug(f"OAuth state set to: {state}")
     return redirect(auth_url)
 
 
