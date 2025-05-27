@@ -92,3 +92,23 @@ def userinfo():
         return jsonify({'error': 'Could not fetch user info'}), 500
 
     return jsonify(resp.json()), 200
+
+@oauth_bp.route('/auth/google/userinfo')
+def google_userinfo():
+    """Return basic profile info for the connected Google Drive account."""
+    creds = session.get('credentials')
+    if not creds:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    token = creds.get('token')
+    try:
+        resp = requests.get(
+            'https://www.googleapis.com/oauth2/v1/userinfo',
+            params={'alt': 'json'},
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        resp.raise_for_status()
+        return jsonify(resp.json()), 200
+    except Exception as e:
+        current_app.logger.error(f"Userinfo fetch failed: {e}")
+        return jsonify({'error': 'Could not fetch userinfo'}), 500
