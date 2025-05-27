@@ -12,7 +12,6 @@ REDIRECT_URI = Config.REDIRECT_URI  # e.g. https://guestmic-backend.onrender.com
 
 @oauth_bp.route('/auth/google')
 def login_oauth():
-    """Start OAuth flow with Google."""
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
@@ -20,7 +19,7 @@ def login_oauth():
     )
     auth_url, state = flow.authorization_url(
         access_type='offline',
-        include_granted_scopes=True,
+        include_granted_scopes='true',  # ← use lowercase string
         prompt='consent'
     )
     session['state'] = state
