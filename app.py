@@ -52,7 +52,7 @@ def create_app():
     app.register_blueprint(oauth_bp)
     app.register_blueprint(links_bp)
     app.register_blueprint(profile_bp)
-    app.register_blueprint(guest_bp)
+    app.register_blueprint(guest_bp, url_prefix='/guest')  # ✅ Ensure guest route is correctly registered
     app.register_blueprint(upload_bp)
     app.register_blueprint(errors_bp)
     app.register_blueprint(security_bp)
