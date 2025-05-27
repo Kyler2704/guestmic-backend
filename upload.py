@@ -1,38 +1,66 @@
-import os
-from flask import Blueprint, request, jsonify, session
-from werkzeug.utils import secure_filename
-from datetime import datetime
-
-ALLOWED_MIMETYPES = {
-    'audio/webm': '.webm',
-    'audio/wav': '.wav',
-}
+import io
+from flask import Blueprint, request, session, jsonify, current_app
+from auth_helper import get_drive_service
+from googleapiclient.http import MediaIoBaseUpload
 
 upload_bp = Blueprint('upload_bp', __name__)
 
-
-@upload_bp.route('/upload', methods=['POST'])
-def upload_audio():
-    """Handle guest audio uploads, save locally, and return metadata."""
+@upload_bp.route('/upload/<slug>', methods=['POST'])
+def upload_to_drive(slug):
+    """
+    Endpoint to receive a recorded audio blob and upload it to the host's Google Drive folder for this slug.
+    """
+    # 1) Check OAuth session
     if 'credentials' not in session:
-        return 'Not authenticated', 401
+        current_app.logger.warning("Unauthorized upload attempt; no OAuth credentials in session")
+        return jsonify({'error': 'Unauthorized'}), 401
 
-    guest_name = request.form.get('name', 'Guest').strip().replace(' ', '_')
-    file = request.files.get('audio')
+    # 2) Get uploaded file and optional name
+    file = request.files.get('file')
     if not file:
-        return jsonify({'error': 'No audio provided.'}), 400
+        return jsonify({'error': 'No file provided'}), 400
+    # Optional: a 'name' field from form
+    name = request.form.get('name', slug)
+    
+    # 3) Initialize Drive API client
+    creds = session['credentials']
+    drive_service = get_drive_service(creds)
 
-    ext = ALLOWED_MIMETYPES.get(file.mimetype)
-    if not ext:
-        return jsonify({'error': 'Unsupported file type.'}), 400
+    # 4) Ensure there's a folder for this slug (create if needed)
+    try:
+        # Attempt to find an existing folder
+        results = drive_service.files().list(
+            q=f"mimeType='application/vnd.google-apps.folder' and name='{slug}' and trashed=false",
+            spaces='drive',
+            fields='files(id,name)'  
+        ).execute()
+        files = results.get('files', [])
+        if files:
+            folder_id = files[0]['id']
+        else:
+            # Create new folder
+            metadata = {'name': slug, 'mimeType': 'application/vnd.google-apps.folder'}
+            folder = drive_service.files().create(body=metadata, fields='id').execute()
+            folder_id = folder.get('id')
+    except Exception as e:
+        current_app.logger.error(f"Error locating/creating folder: {e}")
+        return jsonify({'error': 'Drive folder error'}), 500
 
-    ts = datetime.now().strftime('%Y-%m-%d_%I-%M%p')
-    safe_name = secure_filename(guest_name)
-    fname = f"{safe_name}_{ts}{ext}"
-    os.makedirs('temp_audio', exist_ok=True)
-    path = os.path.join('temp_audio', secure_filename(fname))
-    file.save(path)
+    # 5) Upload the file into that folder
+    try:
+        media = MediaIoBaseUpload(file.stream, mimetype=file.mimetype, resumable=True)
+        file_metadata = {
+            'name': f"{name}.webm",
+            'parents': [folder_id]
+        }
+        uploaded = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id, webViewLink'
+        ).execute()
+        link = uploaded.get('webViewLink')
+        return jsonify({'link': link}), 200
 
-    # TODO: implement upload-to-Drive using stored OAuth2 credentials
-
-    return jsonify({'success': True, 'file': fname}), 200
+    except Exception as e:
+        current_app.logger.error(f"Drive upload error: {e}")
+        return jsonify({'error': 'Upload failed'}), 500
