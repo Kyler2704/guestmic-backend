@@ -1,31 +1,62 @@
 import re
-from flask import Blueprint, request, jsonify
-from fb_admin import firestore
-from auth_helper import verify_token
-from fb_admin import db
-from flask import current_app
+import traceback
+from flask import Blueprint, request, session, jsonify, current_app, url_for
+from auth_helper import get_drive_service, verify_token
+from fb_admin import firestore, db
 
+# Blueprint for link-generation
 links_bp = Blueprint('links_bp', __name__)
 
 @links_bp.route('/generate-link', methods=['POST'])
 def generate_link():
-    current_app.logger.debug(f"Session contents on generate-link: {dict(session)}")
-    if 'credentials' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
+    """
+    Creates a guest link for recording. Expects JSON { slug: string }.
+    Requires a valid Google OAuth session and a valid Firebase token.
+    """
+    try:
+        # Debug: inspect session and incoming request
+        current_app.logger.debug(f"Session contents on generate-link: {dict(session)}")
+        current_app.logger.debug(f"Request JSON: {request.get_data()}")
 
-def generate_link_route():
-    uid = verify_token(request)
-    if not uid:
-        return jsonify({'error': 'Unauthorized'}), 401
-    data = request.get_json() or {}
-    slug = data.get('slug','').strip()
-    # allow only letters, numbers and hyphens; 3–30 chars
-    if not re.fullmatch(r'[A-Za-z0-9\-]{3,30}', slug):
-        return jsonify({'error': 'Slug must be 3-30 chars, alphanumeric or hyphens.'}), 400
-    doc_ref = db.collection('guestLinks').document(slug)
-    if doc_ref.get().exists:
-        return jsonify({'error': 'Slug exists.'}), 409
-    doc_ref.set({'slug': slug, 'owner': uid, 'createdAt': firestore.SERVER_TIMESTAMP})
-    return jsonify({'url': f'/guest/{slug}'}), 200
+        # Ensure OAuth credentials are present
+        if 'credentials' not in session:
+            current_app.logger.warning("Unauthorized generate-link attempt; no OAuth credentials in session")
+            return jsonify({'error': 'Unauthorized'}), 401
 
-links_bp.add_url_rule('/generate-link', view_func=generate_link_route, methods=['POST'])
+        # Verify Firebase token for user identity
+        uid = verify_token(request)
+        if not uid:
+            current_app.logger.warning("Unauthorized generate-link attempt; invalid Firebase token")
+            return jsonify({'error': 'Unauthorized'}), 401
+
+        # Parse and validate slug
+        data = request.get_json(force=True)
+        slug = data.get('slug', '').strip()
+        if not re.fullmatch(r'[A-Za-z0-9\-]{3,30}', slug):
+            current_app.logger.warning(f"Invalid slug provided: {slug}")
+            return jsonify({'error': 'Slug must be 3-30 chars, alphanumeric or hyphens.'}), 400
+
+        # Check slug uniqueness in Firestore
+        doc_ref = db.collection('guestLinks').document(slug)
+        if doc_ref.get().exists:
+            current_app.logger.warning(f"Slug already exists: {slug}")
+            return jsonify({'error': 'Slug exists.'}), 409
+
+        # Store slug ownership in Firestore
+        doc_ref.set({'slug': slug, 'owner': uid, 'createdAt': firestore.SERVER_TIMESTAMP})
+
+        # (Optional) Create a corresponding Google Drive folder or resource
+        # creds = session['credentials']
+        # drive_service = get_drive_service(creds)
+        # folder_id = create_drive_folder(drive_service, slug)
+        # share_url = f"https://drive.google.com/drive/folders/{folder_id}?usp=sharing"
+
+        # Generate relative guest access URL
+        guest_url = f"/guest/{slug}"
+        current_app.logger.info(f"Generated guest link: {guest_url} for user {uid}")
+        return jsonify({'url': guest_url}), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error in generate-link: {e}")
+        traceback.print_exc()
+        return jsonify({'error': 'Internal server error'}), 500
