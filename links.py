@@ -3,8 +3,15 @@ from flask import Blueprint, request, jsonify
 from fb_admin import firestore
 from auth_helper import verify_token
 from fb_admin import db
+from flask import current_app
 
 links_bp = Blueprint('links_bp', __name__)
+
+@links_bp.route('/generate-link', methods=['POST'])
+def generate_link():
+    current_app.logger.debug(f"Session contents on generate-link: {dict(session)}")
+    if 'credentials' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
 
 def generate_link_route():
     uid = verify_token(request)
