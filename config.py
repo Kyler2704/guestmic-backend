@@ -14,11 +14,11 @@ class Config:
     MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10 MB
 
     # OAuth2 settings
-    SCOPES = [
+     SCOPES = [
         'openid',
-        'email',
-        'profile',
-        'https://www.googleapis.com/auth/drive.file'
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/drive.file',
     ]
     CLIENT_SECRETS_FILE = os.getenv('CLIENT_SECRET', '')
     REDIRECT_URI = os.getenv('REDIRECT_URI', '')
