@@ -11,19 +11,19 @@ links_bp = Blueprint('links_bp', __name__)
 def generate_link():
     """
     Creates a guest link for recording. Expects JSON { slug: string }.
-    Requires a valid Google OAuth session and a valid Firebase token.
+    Requires valid Google OAuth session and valid Firebase token.
     """
     try:
         # Debug: inspect session and incoming request
         current_app.logger.debug(f"Session contents on generate-link: {dict(session)}")
         current_app.logger.debug(f"Request JSON: {request.get_data()}")
 
-        # Ensure OAuth credentials are present
+        # Ensure OAuth credentials
         if 'credentials' not in session:
             current_app.logger.warning("Unauthorized generate-link attempt; no OAuth credentials in session")
             return jsonify({'error': 'Unauthorized'}), 401
 
-        # Verify Firebase token for user identity
+        # Verify Firebase token
         uid = verify_token(request)
         if not uid:
             current_app.logger.warning("Unauthorized generate-link attempt; invalid Firebase token")
@@ -42,17 +42,17 @@ def generate_link():
             current_app.logger.warning(f"Slug already exists: {slug}")
             return jsonify({'error': 'Slug exists.'}), 409
 
-        # Store slug ownership in Firestore
+        # Store slug ownership
         doc_ref.set({'slug': slug, 'owner': uid, 'createdAt': firestore.SERVER_TIMESTAMP})
 
-        # (Optional) Create a corresponding Google Drive folder or resource
+        # (Optional) Create Google Drive folder/resource
         # creds = session['credentials']
         # drive_service = get_drive_service(creds)
         # folder_id = create_drive_folder(drive_service, slug)
         # share_url = f"https://drive.google.com/drive/folders/{folder_id}?usp=sharing"
 
-        # Generate relative guest access URL
-        guest_url = f"/guest/{slug}"
+        # Generate relative guest URL
+        guest_url = url_for('guest_bp.render_guest_page', slug=slug, _external=False)
         current_app.logger.info(f"Generated guest link: {guest_url} for user {uid}")
         return jsonify({'url': guest_url}), 200
 
