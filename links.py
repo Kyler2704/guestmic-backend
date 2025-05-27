@@ -46,7 +46,7 @@ def generate_link():
         doc_ref.set({'slug': slug, 'owner': uid, 'createdAt': firestore.SERVER_TIMESTAMP})
 
         # Generate relative guest URL
-        guest_url = url_for('guest_bp.render_guest_page', slug=slug, _external=False)
+        guest_url = url_for('guest_bp.serve_guest', slug=slug, _external=False)
         current_app.logger.info(f"Generated guest link: {guest_url} for user {uid}")
         return jsonify({'url': guest_url}), 200
 
