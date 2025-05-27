@@ -1,7 +1,7 @@
 import re
 import traceback
 from flask import Blueprint, request, session, jsonify, current_app, url_for
-from auth_helper import get_drive_service, verify_token
+from auth_helper import verify_token
 from fb_admin import firestore, db
 
 # Blueprint for link-generation
@@ -44,12 +44,6 @@ def generate_link():
 
         # Store slug ownership
         doc_ref.set({'slug': slug, 'owner': uid, 'createdAt': firestore.SERVER_TIMESTAMP})
-
-        # (Optional) Create Google Drive folder/resource
-        # creds = session['credentials']
-        # drive_service = get_drive_service(creds)
-        # folder_id = create_drive_folder(drive_service, slug)
-        # share_url = f"https://drive.google.com/drive/folders/{folder_id}?usp=sharing"
 
         # Generate relative guest URL
         guest_url = url_for('guest_bp.render_guest_page', slug=slug, _external=False)
