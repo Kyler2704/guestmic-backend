@@ -1,9 +1,12 @@
 # backend/security.py
+from flask import session, redirect, current_app, Blueprint
 from flask import Blueprint, request, jsonify
 from firebase_admin import auth as fb_auth, firestore
 from datetime import datetime
 from fb_admin import db, firebase_auth
 from auth_helper import verify_token
+import requests
+
 
 security_bp = Blueprint('security', __name__)
 
@@ -75,3 +78,24 @@ def get_activity():
         })
 
     return jsonify(events), 200
+
+
+@security_bp.route('/logout')
+def logout():
+    # 1) Revoke the Google OAuth token (if present)
+    creds = session.get('credentials')
+    if creds and creds.get('token'):
+        try:
+            requests.post(
+                'https://oauth2.googleapis.com/revoke',
+                params={'token': creds['token']},
+                headers={'content-type': 'application/x-www-form-urlencoded'}
+            )
+        except Exception as e:
+            current_app.logger.warning(f"Failed to revoke token: {e}")
+
+    # 2) Clear everything from the session
+    session.clear()
+
+    # 3) Redirect to your front-end login page
+    return redirect('https://guestmic.web.app/login')
