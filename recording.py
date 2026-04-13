@@ -161,8 +161,12 @@ def _merge_and_upload(app, session_id):
                 if not chunk_paths:
                     raise RuntimeError("No chunks downloaded — nothing to merge")
 
-                # Concatenate with pydub (requires ffmpeg on the host OS)
+                # Concatenate with pydub — point at the static binary if set via env var
                 from pydub import AudioSegment
+                import os as _os
+                _ffmpeg = _os.getenv('FFMPEG_BINARY')
+                if _ffmpeg:
+                    AudioSegment.converter = _ffmpeg
                 combined = AudioSegment.from_file(chunk_paths[0], format='webm')
                 for path in chunk_paths[1:]:
                     combined += AudioSegment.from_file(path, format='webm')
