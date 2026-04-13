@@ -1,3 +1,6 @@
+import hashlib
+import secrets
+import base64
 import requests
 from flask import Blueprint, session, redirect, request, jsonify, current_app
 from google_auth_oauthlib.flow import Flow
@@ -24,10 +27,22 @@ def login_oauth():
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
+
+    # Generate PKCE code verifier + challenge so the token exchange works
+    # even when google-auth-oauthlib includes a code_challenge automatically.
+    # Store the verifier in session; pass the challenge to Google now.
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b'=').decode()
+    session['code_verifier'] = code_verifier
+
     auth_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',
-        prompt='consent'
+        prompt='consent',
+        code_challenge=code_challenge,
+        code_challenge_method='S256',
     )
     session['state'] = state
     return redirect(auth_url)
@@ -58,7 +73,13 @@ def oauth2callback():
     auth_response = request.url
     if auth_response.startswith('http://'):
         auth_response = 'https://' + auth_response[7:]
-    flow.fetch_token(authorization_response=auth_response)
+
+    # Retrieve the PKCE verifier stored during the initial redirect.
+    code_verifier = session.pop('code_verifier', None)
+    flow.fetch_token(
+        authorization_response=auth_response,
+        code_verifier=code_verifier,
+    )
 
     creds = flow.credentials
     creds_dict = {
