@@ -2,6 +2,7 @@ import requests
 from flask import Blueprint, session, redirect, request, jsonify, current_app
 from google_auth_oauthlib.flow import Flow
 from config import Config
+from fb_admin import db
 
 # OAuth Blueprint with no prefix to expose routes at root
 oauth_bp = Blueprint('oauth_bp', __name__)
@@ -12,6 +13,12 @@ REDIRECT_URI = Config.REDIRECT_URI  # e.g. https://guestmic-backend.onrender.com
 
 @oauth_bp.route('/auth/google')
 def login_oauth():
+    # Accept optional uid query param from the dashboard so we can
+    # associate Drive credentials with the correct Firestore user doc.
+    uid = request.args.get('uid', '').strip()
+    if uid:
+        session['uid'] = uid
+
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
@@ -19,7 +26,7 @@ def login_oauth():
     )
     auth_url, state = flow.authorization_url(
         access_type='offline',
-        include_granted_scopes='true',  # ← use lowercase string
+        include_granted_scopes='true',
         prompt='consent'
     )
     session['state'] = state
@@ -28,7 +35,8 @@ def login_oauth():
 @oauth_bp.route('/auth/google/callback')
 def oauth2callback():
     """
-    Handle OAuth2 callback and store credentials in session.
+    Handle OAuth2 callback, store credentials in session, and persist
+    them to Firestore so background threads can retrieve them by ownerUid.
     """
     incoming_state = request.args.get('state')
     saved_state = session.get('state')
@@ -47,16 +55,34 @@ def oauth2callback():
     flow.fetch_token(authorization_response=request.url)
 
     creds = flow.credentials
-    session['credentials'] = {
+    creds_dict = {
         'token': creds.token,
         'refresh_token': creds.refresh_token,
         'token_uri': creds.token_uri,
         'client_id': creds.client_id,
         'client_secret': creds.client_secret,
-        'scopes': creds.scopes
+        'scopes': list(creds.scopes or []),
     }
+
+    # Keep session-based access for same-request use
+    session['credentials'] = creds_dict
     session.pop('state', None)
     current_app.logger.debug("OAuth credentials saved in session.")
+
+    # Persist to Firestore so the background merge thread can retrieve
+    # credentials by ownerUid without access to the request session.
+    uid = session.get('uid')
+    if uid:
+        db.collection('users').document(uid).set(
+            {'driveCredentials': creds_dict},
+            merge=True
+        )
+        current_app.logger.debug("Drive credentials persisted to Firestore for uid=%s", uid)
+    else:
+        current_app.logger.warning(
+            "No uid in session at OAuth callback — Drive credentials not persisted to Firestore. "
+            "Ensure the dashboard passes ?uid=<firebase_uid> when initiating /auth/google."
+        )
 
     # Redirect to front-end dashboard
     return redirect('https://guestmic.web.app/GuestMicDashboard.html')
