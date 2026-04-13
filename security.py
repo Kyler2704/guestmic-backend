@@ -80,7 +80,7 @@ def get_activity():
     return jsonify(events), 200
 
 
-@security_bp.route('/logout')
+@security_bp.route('/logout', methods=['GET', 'POST'])
 def logout():
     # 1) Revoke the Google OAuth token (if present)
     creds = session.get('credentials')

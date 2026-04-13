@@ -1,6 +1,6 @@
 import re
 import traceback
-from flask import Blueprint, request, session, jsonify, current_app, url_for
+from flask import Blueprint, request, jsonify, current_app, url_for
 from auth_helper import verify_token
 from fb_admin import firestore, db
 
@@ -14,20 +14,21 @@ def generate_link():
     Requires valid Google OAuth session and valid Firebase token.
     """
     try:
-        # Debug: inspect session and incoming request
-        current_app.logger.debug(f"Session contents on generate-link: {dict(session)}")
-        current_app.logger.debug(f"Request JSON: {request.get_data()}")
-
-        # Ensure OAuth credentials
-        if 'credentials' not in session:
-            current_app.logger.warning("Unauthorized generate-link attempt; no OAuth credentials in session")
-            return jsonify({'error': 'Unauthorized'}), 401
-
-        # Verify Firebase token
+        # Verify Firebase token — this is the sole auth gate.
+        # We no longer require session['credentials'] here because the session
+        # cookie is not reliably forwarded on cross-origin requests from the
+        # Firebase-hosted frontend. Drive credentials are stored in Firestore
+        # (keyed by uid) and retrieved by the merge pipeline when needed.
         uid = verify_token(request)
         if not uid:
             current_app.logger.warning("Unauthorized generate-link attempt; invalid Firebase token")
             return jsonify({'error': 'Unauthorized'}), 401
+
+        # Ensure the user has connected Google Drive before allowing link creation
+        user_doc = db.collection('users').document(uid).get()
+        if not user_doc.exists or not (user_doc.to_dict() or {}).get('driveCredentials'):
+            current_app.logger.warning("generate-link blocked; user %s has not connected Drive", uid)
+            return jsonify({'error': 'Please connect Google Drive before generating a link.'}), 403
 
         # Parse and validate slug
         data = request.get_json(force=True)
