@@ -3,135 +3,606 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>GuestMic Recorder</title>
+  <title>GuestMic — Record</title>
   <style>
-    /* Page Reset & Background */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      margin: 0;
-      background: #111;
-      color: #EEE;
-      font-family: 'Segoe UI', sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
       min-height: 100vh;
+      background: #0a0a0a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      padding: 1rem;
     }
 
-    /* Card Container */
-    .recorder-card {
-      background: #000;
-      border-radius: 12px;
-      padding: 2rem;
+    /* ── Card ── */
+    .card {
+      background: rgba(18, 18, 18, 0.92);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      border: 1px solid rgba(255, 217, 127, 0.1);
+      border-radius: 28px;
+      padding: 3rem 2.5rem 2.5rem;
       width: 100%;
-      max-width: 480px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      max-width: 420px;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 24px 64px rgba(0,0,0,0.7);
+      position: relative;
+      overflow: hidden;
     }
 
-    /* Logo */
-    .recorder-card img.logo {
+    /* Subtle gold top glow line */
+    .card::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 50%;
+      transform: translateX(-50%);
+      width: 60%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,217,127,0.4), transparent);
+    }
+
+    /* ── Logo ── */
+    .logo {
       display: block;
-      margin: 0 auto 1.5rem;
-      height: 60px;
+      height: 52px;
       width: auto;
+      margin: 0 auto 2rem;
+      opacity: 0.95;
     }
 
-    /* Title */
-    .recorder-card h1 {
+    /* ── Mic icon + pulse rings ── */
+    .mic-wrap {
+      position: relative;
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 1.75rem;
+    }
+
+    .ring {
+      position: absolute;
+      inset: -14px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(255, 217, 127, 0.5);
+      opacity: 0;
+      transform: scale(1);
+      pointer-events: none;
+    }
+
+    .ring-2 {
+      inset: -26px;
+      border-color: rgba(255, 217, 127, 0.3);
+    }
+
+    @keyframes pulse {
+      0%   { transform: scale(1); opacity: 0.7; }
+      100% { transform: scale(1.35); opacity: 0; }
+    }
+
+    .recording .ring   { animation: pulse 1.8s ease-out infinite; }
+    .recording .ring-2 { animation: pulse 1.8s ease-out 0.6s infinite; }
+
+    .mic-bg {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      background: rgba(255, 217, 127, 0.08);
+      border: 1px solid rgba(255, 217, 127, 0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.4s ease, border-color 0.4s ease;
+    }
+
+    .recording .mic-bg {
+      background: rgba(255, 217, 127, 0.14);
+      border-color: rgba(255, 217, 127, 0.4);
+    }
+
+    .mic-bg svg {
+      width: 36px;
+      height: 36px;
+      transition: transform 0.3s ease;
+    }
+
+    .recording .mic-bg svg { transform: scale(1.1); }
+
+    /* ── Timer ── */
+    .timer {
       text-align: center;
-      font-size: 1.75rem;
-      margin-bottom: 2rem;
-      color: #FFD97F;
-    }
-
-    /* Form Groups */
-    .form-group {
-      margin-bottom: 1.25rem;
-    }
-    .form-group label {
-      display: block;
+      font-size: 2.8rem;
+      font-weight: 300;
+      letter-spacing: 0.06em;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
       margin-bottom: 0.5rem;
-      font-size: 0.9rem;
-    }
-    .form-group input,
-    .form-group select {
-      width: 100%;
-      padding: 0.75rem;
-      border-radius: 4px;
-      border: 1px solid #444;
-      background: #222;
-      color: #EEE;
-      font-size: 1rem;
+      min-height: 3.5rem;
+      opacity: 0;
+      transition: opacity 0.4s ease;
     }
 
-    /* Buttons */
-    .btn {
-      display: block;
-      width: 100%;
-      padding: 0.75rem;
-      border: none;
-      border-radius: 999px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
-      margin-top: 1rem;
+    .recording .timer { opacity: 1; }
+
+    /* ── Waveform ── */
+    .waveform-wrap {
+      height: 48px;
+      margin-bottom: 1.75rem;
+      border-radius: 8px;
+      overflow: hidden;
+      opacity: 0;
+      transition: opacity 0.4s ease;
     }
-    .btn-start {
+
+    .recording .waveform-wrap { opacity: 1; }
+
+    canvas#waveform {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* ── Form fields ── */
+    .field { margin-bottom: 1rem; }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.45);
+      margin-bottom: 0.4rem;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      color: #fff;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      border-color: rgba(255, 217, 127, 0.5);
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    select option { background: #1a1a1a; }
+
+    /* ── Guest name display shown after Start ── */
+    .guest-label {
+      text-align: center;
+      font-size: 1rem;
+      color: rgba(255, 255, 255, 0.55);
+      margin-bottom: 1.5rem;
+      min-height: 1.4rem;
+      display: none;
+    }
+
+    .guest-label span { color: #FFD97F; font-weight: 500; }
+
+    /* ── Record button (morphs from Start to Stop) ── */
+    .btn-record {
+      width: 100%;
+      padding: 1rem;
+      border: none;
+      border-radius: 14px;
       background: #FFD97F;
       color: #000;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition:
+        background 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+        color 0.35s,
+        border 0.35s,
+        transform 0.2s,
+        box-shadow 0.2s;
+      margin-top: 0.5rem;
     }
-    .btn-start:hover {
-      transform: scale(1.05);
-      box-shadow: 0 0 8px rgba(255,217,127,0.8);
+
+    .btn-record:hover:not(:disabled) {
+      transform: scale(1.02);
+      box-shadow: 0 8px 28px rgba(255, 217, 127, 0.35);
     }
-    .btn-stop {
-      background: #333;
-      color: #FFF;
+
+    .btn-record:active:not(:disabled) { transform: scale(0.98); }
+
+    .btn-record.stop-mode {
+      background: rgba(255, 255, 255, 0.07);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.18);
     }
-    .btn-stop:hover {
-      transform: scale(1.05);
-      box-shadow: 0 0 8px rgba(255,255,255,0.4);
+
+    .btn-record.stop-mode:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.11);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     }
+
+    .btn-record:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ── Confirmation screen ── */
+    .confirmation {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 1.5rem 0;
+    }
+
+    .checkmark {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(255, 217, 127, 0.12);
+      border: 1.5px solid rgba(255, 217, 127, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .checkmark svg {
+      width: 30px;
+      height: 30px;
+      stroke: #FFD97F;
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @keyframes draw-check {
+      from { stroke-dashoffset: 40; }
+      to   { stroke-dashoffset: 0; }
+    }
+
+    .checkmark svg path {
+      stroke-dasharray: 40;
+      stroke-dashoffset: 40;
+      animation: draw-check 0.5s ease 0.15s forwards;
+    }
+
+    .confirmation h2 {
+      font-size: 1.4rem;
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+
+    .confirmation p {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.45);
+      line-height: 1.6;
+    }
+
+    /* ── Crossfade ── */
+    @keyframes fadeOut { to { opacity: 0; pointer-events: none; } }
+    @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+    .fade-out { animation: fadeOut 0.3s ease forwards; }
+    .fade-in  { animation: fadeIn  0.35s ease 0.3s both; }
   </style>
 </head>
 <body>
-  <div class="recorder-card">
-    <!-- Logo -->
-    <img
-  src="static/GuestMic_Logo_Transparent.png"
-  alt="GuestMic Logo"
-  style="max-height: 150px; width: auto; display: block; margin: 0 auto 1.5rem;"
-/>
+  <div class="card" id="card">
 
-    <!-- Title -->
-    <h1>GuestMic Recorder</h1>
+    <img class="logo" src="/static/GuestMic_Logo_Transparent.png" alt="GuestMic">
 
-    <!-- Name Input -->
-    <div class="form-group">
-      <label for="guest-name">Your Name</label>
-      <input type="text" id="guest-name" placeholder="e.g. Alex">
+    <!-- Mic icon with pulse rings -->
+    <div class="mic-wrap" id="micWrap">
+      <div class="ring"></div>
+      <div class="ring ring-2"></div>
+      <div class="mic-bg">
+        <!-- Microphone SVG -->
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="9" y="2" width="6" height="11" rx="3" fill="#FFD97F"/>
+          <path d="M5 10a7 7 0 0 0 14 0" stroke="#FFD97F" stroke-width="2" stroke-linecap="round"/>
+          <line x1="12" y1="19" x2="12" y2="22" stroke="#FFD97F" stroke-width="2" stroke-linecap="round"/>
+          <line x1="8"  y1="22" x2="16" y2="22" stroke="#FFD97F" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
     </div>
 
-    <!-- Microphone Select -->
-    <div class="form-group">
-      <label for="mic-select">Select Microphone</label>
-      <select id="mic-select">
-        <option>Default - Microphone</option>
-        <!-- your script will populate actual devices here -->
-      </select>
+    <!-- Live timer (visible only while recording) -->
+    <div class="timer" id="timer">00:00:00</div>
+
+    <!-- Real-time waveform visualizer -->
+    <div class="waveform-wrap">
+      <canvas id="waveform"></canvas>
     </div>
 
-    <!-- Control Buttons -->
-    <button id="start-btn" class="btn btn-start">Start Recording</button>
-    <button id="stop-btn" class="btn btn-stop" disabled>Stop Recording</button>
+    <!-- Main content: form + button -->
+    <div id="mainContent">
+      <p class="guest-label" id="guestLabel">
+        Recording as <span id="guestNameDisplay"></span>
+      </p>
+
+      <div class="field" id="nameField">
+        <label for="guestName">Your Name</label>
+        <input type="text" id="guestName" placeholder="e.g. Alex" autocomplete="name">
+      </div>
+
+      <div class="field" id="micField">
+        <label for="micSelect">Microphone</label>
+        <select id="micSelect"></select>
+      </div>
+
+      <button class="btn-record" id="recordBtn">Start Recording</button>
+    </div>
+
+    <!-- Confirmation (replaces mainContent after Stop) -->
+    <div class="confirmation" id="confirmation">
+      <div class="checkmark">
+        <svg viewBox="0 0 24 24"><path d="M5 12l5 5L19 7"/></svg>
+      </div>
+      <h2>You're all set!</h2>
+      <p>Your recording has been submitted.<br>You can close this tab.</p>
+    </div>
+
   </div>
 
-  <!-- Your existing recorder logic -->
   <script>
-    // Example starter: populate mics & wire up start/stop
-    // navigator.mediaDevices.enumerateDevices().then(...);
-    // document.getElementById('start-btn').onclick = ...
-    // document.getElementById('stop-btn').onclick = ...
+    // Slug is injected by Flask/Jinja at render time
+    const SLUG = "{{ slug }}";
+
+    const card             = document.getElementById('card');
+    const micWrap          = document.getElementById('micWrap');
+    const timerEl          = document.getElementById('timer');
+    const waveformCanvas   = document.getElementById('waveform');
+    const mainContent      = document.getElementById('mainContent');
+    const confirmation     = document.getElementById('confirmation');
+    const nameField        = document.getElementById('nameField');
+    const micField         = document.getElementById('micField');
+    const guestLabel       = document.getElementById('guestLabel');
+    const guestNameDisplay = document.getElementById('guestNameDisplay');
+    const guestNameInput   = document.getElementById('guestName');
+    const micSelect        = document.getElementById('micSelect');
+    const recordBtn        = document.getElementById('recordBtn');
+
+    let mediaRecorder, audioCtx, analyser, animFrameId;
+    let sessionId     = null;
+    let chunkIndex    = 0;
+    let pendingUploads = [];
+    let timerInterval  = null;
+    let secondsElapsed = 0;
+    let isRecording    = false;
+
+    // ── Populate microphone list ──────────────────────────────────────
+    async function loadMics() {
+      try {
+        // Request permission first so device labels are populated
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mics = devices.filter(d => d.kind === 'audioinput');
+        micSelect.innerHTML = '';
+        mics.forEach((mic, i) => {
+          const opt = document.createElement('option');
+          opt.value = mic.deviceId;
+          opt.textContent = mic.label || `Microphone ${i + 1}`;
+          micSelect.appendChild(opt);
+        });
+      } catch {
+        const opt = document.createElement('option');
+        opt.textContent = 'Default Microphone';
+        micSelect.appendChild(opt);
+      }
+    }
+
+    // ── Timer ─────────────────────────────────────────────────────────
+    function startTimer() {
+      secondsElapsed = 0;
+      timerInterval = setInterval(() => {
+        secondsElapsed++;
+        const h = String(Math.floor(secondsElapsed / 3600)).padStart(2, '0');
+        const m = String(Math.floor((secondsElapsed % 3600) / 60)).padStart(2, '0');
+        const s = String(secondsElapsed % 60).padStart(2, '0');
+        timerEl.textContent = `${h}:${m}:${s}`;
+      }, 1000);
+    }
+
+    function stopTimer() { clearInterval(timerInterval); }
+
+    // ── Waveform visualizer ───────────────────────────────────────────
+    function startWaveform(stream) {
+      audioCtx = new AudioContext();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 128;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+
+      const ctx = waveformCanvas.getContext('2d');
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+
+      // Size canvas to physical pixels for crisp rendering
+      const rect = waveformCanvas.parentElement.getBoundingClientRect();
+      waveformCanvas.width  = rect.width  * devicePixelRatio;
+      waveformCanvas.height = rect.height * devicePixelRatio;
+
+      function draw() {
+        if (!isRecording) return;
+        animFrameId = requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(buf);
+
+        const w = waveformCanvas.width;
+        const h = waveformCanvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const barW = Math.max(1, Math.floor(w / buf.length) - 1);
+        buf.forEach((val, i) => {
+          const barH = (val / 255) * h;
+          const alpha = 0.3 + (val / 255) * 0.7;
+          ctx.fillStyle = `rgba(255, 217, 127, ${alpha})`;
+          ctx.beginPath();
+          // Rounded top bars
+          const x = i * (barW + 1);
+          const y = h - barH;
+          const r = Math.min(barW / 2, 2);
+          ctx.moveTo(x + r, y);
+          ctx.lineTo(x + barW - r, y);
+          ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+          ctx.lineTo(x + barW, h);
+          ctx.lineTo(x, h);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.fill();
+        });
+      }
+      draw();
+    }
+
+    function stopWaveform() {
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      if (audioCtx) audioCtx.close();
+    }
+
+    // ── Chunk upload (fire-and-forget — recording continues in parallel) ──
+    async function uploadChunk(blob, index) {
+      const form = new FormData();
+      form.append('sessionId', sessionId);
+      form.append('chunkIndex', index);
+      form.append('audio', blob, `chunk_${String(index).padStart(3, '0')}.webm`);
+      try {
+        await fetch('/upload/chunk', { method: 'POST', body: form });
+      } catch {
+        // Silent fail: chunk is lost but recording continues
+      }
+    }
+
+    // ── Button handler ────────────────────────────────────────────────
+    recordBtn.addEventListener('click', async () => {
+      if (!isRecording) {
+        await startRecording();
+      } else {
+        await stopRecording();
+      }
+    });
+
+    // ── Start recording ───────────────────────────────────────────────
+    async function startRecording() {
+      const name = guestNameInput.value.trim() || 'Guest';
+
+      // Create session on server
+      let resp, body;
+      try {
+        resp = await fetch('/upload/session/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: SLUG, guestName: name }),
+        });
+        body = await resp.json();
+      } catch {
+        alert('Could not reach the server. Please check your connection and try again.');
+        return;
+      }
+
+      if (!resp.ok) {
+        alert(body.error || 'Failed to start session. Please try again.');
+        return;
+      }
+
+      sessionId = body.sessionId;
+      chunkIndex = 0;
+      pendingUploads = [];
+
+      // Get microphone stream
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: micSelect.value ? { exact: micSelect.value } : undefined,
+            echoCancellation: true,
+            noiseSuppression: true,
+          }
+        });
+      } catch {
+        alert('Microphone access was denied. Please allow access and try again.');
+        return;
+      }
+
+      // MediaRecorder with 2-minute timeslice
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+
+      mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+      // Each chunk: upload immediately while next chunk records in parallel
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          const idx = chunkIndex++;
+          pendingUploads.push(uploadChunk(e.data, idx));
+        }
+      };
+
+      // After Stop: wait for all uploads, then finalize
+      mediaRecorder.onstop = async () => {
+        await Promise.all(pendingUploads);
+        try {
+          await fetch('/upload/finalize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, totalChunks: chunkIndex }),
+          });
+        } catch { /* silent */ }
+        showConfirmation();
+      };
+
+      // 2-minute chunks (120,000 ms)
+      mediaRecorder.start(120000);
+      isRecording = true;
+
+      // Switch UI to recording state
+      card.classList.add('recording');
+      micWrap.classList.add('recording');
+      nameField.style.display = 'none';
+      micField.style.display = 'none';
+      guestNameDisplay.textContent = name;
+      guestLabel.style.display = 'block';
+      recordBtn.textContent = 'Stop Recording';
+      recordBtn.classList.add('stop-mode');
+
+      startWaveform(stream);
+      startTimer();
+    }
+
+    // ── Stop recording ────────────────────────────────────────────────
+    async function stopRecording() {
+      recordBtn.disabled = true;
+      recordBtn.textContent = 'Uploading…';
+      isRecording = false;
+      card.classList.remove('recording');
+      micWrap.classList.remove('recording');
+      stopTimer();
+      stopWaveform();
+      mediaRecorder.stop();
+      mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    }
+
+    // ── Confirmation crossfade ────────────────────────────────────────
+    function showConfirmation() {
+      mainContent.classList.add('fade-out');
+      timerEl.classList.add('fade-out');
+      setTimeout(() => {
+        mainContent.style.display = 'none';
+        timerEl.style.display = 'none';
+        confirmation.style.display = 'flex';
+        confirmation.classList.add('fade-in');
+      }, 300);
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────
+    loadMics();
   </script>
 </body>
 </html>
