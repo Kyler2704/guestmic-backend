@@ -8,7 +8,7 @@ from oauth import oauth_bp
 from links import links_bp
 from profile import profile_bp
 from guest import guest_bp
-from upload import upload_bp
+from recording import recording_bp
 from errors import errors_bp
 from security import security_bp
 from email_notifications import notifications_bp
@@ -53,7 +53,7 @@ def create_app():
     app.register_blueprint(links_bp)
     app.register_blueprint(profile_bp)
     app.register_blueprint(guest_bp, url_prefix='/guest')  # ✅ Ensure guest route is correctly registered
-    app.register_blueprint(upload_bp)
+    app.register_blueprint(recording_bp)
     app.register_blueprint(errors_bp)
     app.register_blueprint(security_bp)
     app.register_blueprint(notifications_bp)
