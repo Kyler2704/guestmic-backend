@@ -52,7 +52,13 @@ def oauth2callback():
         redirect_uri=REDIRECT_URI,
         state=saved_state
     )
-    flow.fetch_token(authorization_response=request.url)
+    # Render terminates TLS at the proxy level, so request.url arrives as
+    # http:// even though the client used https://. Google rejects the token
+    # exchange if the redirect URI doesn't match exactly. Force https here.
+    auth_response = request.url
+    if auth_response.startswith('http://'):
+        auth_response = 'https://' + auth_response[7:]
+    flow.fetch_token(authorization_response=auth_response)
 
     creds = flow.credentials
     creds_dict = {
