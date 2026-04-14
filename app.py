@@ -44,7 +44,11 @@ def create_app():
     CORS(
         app,
         supports_credentials=True,
-        origins=["https://guestmic.web.app"]
+        origins=[
+            "https://guestmic.web.app",
+            "https://guestmic.com",
+            "https://www.guestmic.com",
+        ]
     )
 
     # Register blueprints
