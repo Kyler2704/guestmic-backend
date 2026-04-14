@@ -161,18 +161,16 @@ def _merge_and_upload(app, session_id):
                 if not chunk_paths:
                     raise RuntimeError("No chunks downloaded — nothing to merge")
 
-                # Concatenate with pydub — point at the static binary if set via env var
-                from pydub import AudioSegment
-                import os as _os
-                _ffmpeg = _os.getenv('FFMPEG_BINARY')
-                if _ffmpeg:
-                    AudioSegment.converter = _ffmpeg
-                combined = AudioSegment.from_file(chunk_paths[0], format='webm')
-                for path in chunk_paths[1:]:
-                    combined += AudioSegment.from_file(path, format='webm')
-
+                # MediaRecorder timeslice chunks are NOT independent WebM files.
+                # Only chunk_000 carries the EBML header; subsequent chunks are
+                # raw continuation segments. ffmpeg/pydub cannot open them
+                # individually. The correct approach is to concatenate the raw
+                # bytes in order — the result is a single valid WebM stream.
                 merged_path = os.path.join(tmpdir, 'merged.webm')
-                combined.export(merged_path, format='webm', codec='libopus')
+                with open(merged_path, 'wb') as out:
+                    for path in chunk_paths:
+                        with open(path, 'rb') as chunk_file:
+                            out.write(chunk_file.read())
 
                 # Load host's Drive credentials from Firestore
                 user_doc = db.collection('users').document(owner_uid).get()
