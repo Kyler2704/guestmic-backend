@@ -3,6 +3,8 @@ import threading
 import tempfile
 import os
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, request, jsonify, current_app
 from fb_admin import db, bucket, firestore
@@ -128,35 +130,48 @@ def _merge_and_upload(app, session_id):
     5. Clean up chunks from Firebase Storage
     6. Update Firestore session status
     """
-    import time
-    time.sleep(180)  # 3-minute buffer for in-flight uploads
-
     with app.app_context():
         session_ref = db.collection('recordingSessions').document(session_id)
 
         try:
+            session_data = session_ref.get().to_dict()
+            expected_chunks = session_data.get('expectedChunks', 0)
+
+            # Poll until all chunks have landed (or 2-min timeout) instead of blind sleep(180).
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                current = session_ref.get().to_dict().get('chunkCount', 0)
+                if current >= expected_chunks:
+                    break
+                logger.info("Session %s: waiting for chunks (%d/%d) ...", session_id, current, expected_chunks)
+                time.sleep(5)
+
             session_ref.update({'status': 'merging'})
             session_data = session_ref.get().to_dict()
             slug = session_data['slug']
             owner_uid = session_data['ownerUid']
             guest_name = session_data.get('guestName', 'Guest')
-            expected_chunks = session_data.get('expectedChunks', 0)
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Download all chunks in recording order
-                chunk_paths = []
-                for i in range(expected_chunks):
+                # Download all chunks in parallel
+                chunk_paths = [None] * expected_chunks
+
+                def _download_chunk(i):
                     blob_path = f'recordings/{slug}/{session_id}/chunk_{i:03d}.webm'
-                    blob = bucket.blob(blob_path)
                     local_path = os.path.join(tmpdir, f'chunk_{i:03d}.webm')
                     try:
-                        blob.download_to_filename(local_path)
-                        chunk_paths.append(local_path)
+                        bucket.blob(blob_path).download_to_filename(local_path)
+                        return i, local_path
                     except Exception:
-                        # Chunk was lost (silent drop on connection failure) — skip it
-                        logger.warning(
-                            "Chunk %d missing for session %s — skipping", i, session_id
-                        )
+                        logger.warning("Chunk %d missing for session %s — skipping", i, session_id)
+                        return i, None
+
+                with ThreadPoolExecutor(max_workers=min(expected_chunks or 1, 8)) as pool:
+                    for i, path in pool.map(_download_chunk, range(expected_chunks)):
+                        if path:
+                            chunk_paths[i] = path
+
+                chunk_paths = [p for p in chunk_paths if p is not None]
 
                 if not chunk_paths:
                     raise RuntimeError("No chunks downloaded — nothing to merge")
@@ -194,10 +209,11 @@ def _merge_and_upload(app, session_id):
                     scopes=creds_data['scopes'],
                 )
 
-                drive_service = build('drive', 'v3', credentials=creds)
+                drive_service = build('drive', 'v3', credentials=creds, static_discovery=True)
                 file_name = f'{guest_name}_{session_id}.webm'
                 file_metadata = {'name': file_name}
-                media = MediaFileUpload(merged_path, mimetype='audio/webm', resumable=True)
+                use_resumable = os.path.getsize(merged_path) > 5 * 1024 * 1024
+                media = MediaFileUpload(merged_path, mimetype='audio/webm', resumable=use_resumable)
                 result = drive_service.files().create(
                     body=file_metadata,
                     media_body=media,
