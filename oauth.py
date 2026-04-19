@@ -1,4 +1,5 @@
 import hashlib
+import json
 import secrets
 import base64
 import requests
@@ -16,11 +17,7 @@ REDIRECT_URI = Config.REDIRECT_URI  # e.g. https://guestmic-backend.onrender.com
 
 @oauth_bp.route('/auth/google')
 def login_oauth():
-    # Accept optional uid query param from the dashboard so we can
-    # associate Drive credentials with the correct Firestore user doc.
     uid = request.args.get('uid', '').strip()
-    if uid:
-        session['uid'] = uid
 
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
@@ -28,23 +25,25 @@ def login_oauth():
         redirect_uri=REDIRECT_URI
     )
 
-    # Generate PKCE code verifier + challenge so the token exchange works
-    # even when google-auth-oauthlib includes a code_challenge automatically.
-    # Store the verifier in session; pass the challenge to Google now.
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b'=').decode()
-    session['code_verifier'] = code_verifier
 
-    auth_url, state = flow.authorization_url(
+    # Encode uid + code_verifier into state so the callback is stateless —
+    # no session needed, survives Render multi-instance redirects.
+    state_payload = base64.urlsafe_b64encode(
+        json.dumps({'uid': uid, 'cv': code_verifier}).encode()
+    ).decode().rstrip('=')
+
+    auth_url, _ = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',
         prompt='consent',
+        state=state_payload,
         code_challenge=code_challenge,
         code_challenge_method='S256',
     )
-    session['state'] = state
     return redirect(auth_url)
 
 @oauth_bp.route('/auth/google/callback')
@@ -53,29 +52,28 @@ def oauth2callback():
     Handle OAuth2 callback, store credentials in session, and persist
     them to Firestore so background threads can retrieve them by ownerUid.
     """
-    incoming_state = request.args.get('state')
-    saved_state = session.get('state')
-    if not saved_state or incoming_state != saved_state:
-        current_app.logger.warning(
-            f"State mismatch: incoming={incoming_state}, saved={saved_state}"
-        )
-        return "Session expired or invalid. Please try again.", 400
+    incoming_state = request.args.get('state', '')
+    try:
+        # Pad base64 back to a multiple of 4
+        padded = incoming_state + '=' * (-len(incoming_state) % 4)
+        state_data = json.loads(base64.urlsafe_b64decode(padded).decode())
+        uid = state_data.get('uid', '').strip()
+        code_verifier = state_data.get('cv', '')
+    except Exception:
+        current_app.logger.warning("Could not decode state parameter: %s", incoming_state)
+        return "Invalid state parameter. Please try again.", 400
 
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI,
-        state=saved_state
+        state=incoming_state,
     )
-    # Render terminates TLS at the proxy level, so request.url arrives as
-    # http:// even though the client used https://. Google rejects the token
-    # exchange if the redirect URI doesn't match exactly. Force https here.
+
     auth_response = request.url
     if auth_response.startswith('http://'):
         auth_response = 'https://' + auth_response[7:]
 
-    # Retrieve the PKCE verifier stored during the initial redirect.
-    code_verifier = session.pop('code_verifier', None)
     flow.fetch_token(
         authorization_response=auth_response,
         code_verifier=code_verifier,
@@ -92,14 +90,9 @@ def oauth2callback():
         'expiry': creds.expiry.isoformat() if creds.expiry else None,
     }
 
-    # Keep session-based access for same-request use
     session['credentials'] = creds_dict
-    session.pop('state', None)
     current_app.logger.debug("OAuth credentials saved in session.")
 
-    # Persist to Firestore so the background merge thread can retrieve
-    # credentials by ownerUid without access to the request session.
-    uid = session.get('uid')
     if uid:
         db.collection('users').document(uid).set(
             {'driveCredentials': creds_dict},
@@ -108,11 +101,10 @@ def oauth2callback():
         current_app.logger.debug("Drive credentials persisted to Firestore for uid=%s", uid)
     else:
         current_app.logger.warning(
-            "No uid in session at OAuth callback — Drive credentials not persisted to Firestore. "
+            "No uid in OAuth state — Drive credentials not persisted to Firestore. "
             "Ensure the dashboard passes ?uid=<firebase_uid> when initiating /auth/google."
         )
 
-    # Redirect to front-end dashboard
     return redirect('https://guestmic.web.app/GuestMicDashboard.html')
 
 @oauth_bp.route('/drive-status')
