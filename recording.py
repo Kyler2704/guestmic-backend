@@ -196,14 +196,14 @@ def _merge_and_upload(app, session_id):
                         "Host must connect Google Drive before guests can record."
                     )
 
-                from datetime import datetime, timezone
+                from datetime import datetime
                 from google.oauth2.credentials import Credentials
                 from google.auth.transport.requests import Request
                 from googleapiclient.discovery import build
                 from googleapiclient.http import MediaFileUpload
 
                 expiry_str = creds_data.get('expiry')
-                expiry = datetime.fromisoformat(expiry_str).replace(tzinfo=timezone.utc) if expiry_str else None
+                expiry = datetime.fromisoformat(expiry_str).replace(tzinfo=None) if expiry_str else None
 
                 creds = Credentials(
                     token=creds_data['token'],
