@@ -72,7 +72,6 @@ def upload_chunk():
 
     session_data = session_doc.to_dict()
     slug = session_data.get('slug')
-    owner_uid = session_data.get('ownerUid')
 
     # Zero-padded chunk index ensures lexicographic sort == recording order
     blob_path = f'recordings/{slug}/{session_id}/chunk_{chunk_index:03d}.webm'
@@ -82,48 +81,7 @@ def upload_chunk():
     # Atomically increment the chunk counter
     session_ref.update({'chunkCount': Increment(1)})
 
-    # Proactively refresh the host's Drive access token on every chunk so it
-    # stays warm for the merge. Runs in background to not slow the response.
-    threading.Thread(
-        target=_refresh_drive_token_if_needed,
-        args=(owner_uid,),
-        daemon=True,
-    ).start()
-
     return jsonify({'success': True}), 200
-
-
-def _refresh_drive_token_if_needed(owner_uid):
-    try:
-        from datetime import datetime
-        from google.oauth2.credentials import Credentials
-        from google.auth.transport.requests import Request
-
-        user_doc = db.collection('users').document(owner_uid).get()
-        creds_data = (user_doc.to_dict() or {}).get('driveCredentials')
-        if not creds_data:
-            return
-
-        expiry_str = creds_data.get('expiry')
-        expiry = datetime.fromisoformat(expiry_str).replace(tzinfo=None) if expiry_str else None
-        creds = Credentials(
-            token=creds_data['token'],
-            refresh_token=creds_data['refresh_token'],
-            token_uri=creds_data['token_uri'],
-            client_id=creds_data['client_id'],
-            client_secret=creds_data['client_secret'],
-            scopes=creds_data['scopes'],
-            expiry=expiry,
-        )
-        if not creds.valid:
-            creds.refresh(Request())
-            db.collection('users').document(owner_uid).update({
-                'driveCredentials.token': creds.token,
-                'driveCredentials.expiry': creds.expiry.isoformat() if creds.expiry else None,
-            })
-            logger.info("Proactively refreshed Drive token for owner %s", owner_uid)
-    except Exception:
-        logger.warning("Background Drive token refresh failed for owner %s", owner_uid, exc_info=True)
 
 
 @recording_bp.route('/upload/finalize', methods=['POST'])
