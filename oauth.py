@@ -89,6 +89,7 @@ def oauth2callback():
         'client_id': creds.client_id,
         'client_secret': creds.client_secret,
         'scopes': list(creds.scopes or []),
+        'expiry': creds.expiry.isoformat() if creds.expiry else None,
     }
 
     # Keep session-based access for same-request use

@@ -196,9 +196,14 @@ def _merge_and_upload(app, session_id):
                         "Host must connect Google Drive before guests can record."
                     )
 
+                from datetime import datetime, timezone
                 from google.oauth2.credentials import Credentials
+                from google.auth.transport.requests import Request
                 from googleapiclient.discovery import build
                 from googleapiclient.http import MediaFileUpload
+
+                expiry_str = creds_data.get('expiry')
+                expiry = datetime.fromisoformat(expiry_str).replace(tzinfo=timezone.utc) if expiry_str else None
 
                 creds = Credentials(
                     token=creds_data['token'],
@@ -207,7 +212,12 @@ def _merge_and_upload(app, session_id):
                     client_id=creds_data['client_id'],
                     client_secret=creds_data['client_secret'],
                     scopes=creds_data['scopes'],
+                    expiry=expiry,
                 )
+
+                if not creds.valid:
+                    creds.refresh(Request())
+                    logger.info("Session %s: Drive token refreshed", session_id)
 
                 drive_service = build('drive', 'v3', credentials=creds, static_discovery=True)
                 file_name = f'{guest_name}_{session_id}.webm'
