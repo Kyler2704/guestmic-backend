@@ -70,7 +70,9 @@ def upload_chunk():
     if not session_doc.exists:
         return jsonify({'error': 'Invalid session'}), 404
 
-    slug = session_doc.to_dict().get('slug')
+    session_data = session_doc.to_dict()
+    slug = session_data.get('slug')
+    owner_uid = session_data.get('ownerUid')
 
     # Zero-padded chunk index ensures lexicographic sort == recording order
     blob_path = f'recordings/{slug}/{session_id}/chunk_{chunk_index:03d}.webm'
@@ -80,7 +82,48 @@ def upload_chunk():
     # Atomically increment the chunk counter
     session_ref.update({'chunkCount': Increment(1)})
 
+    # Proactively refresh the host's Drive access token on every chunk so it
+    # stays warm for the merge. Runs in background to not slow the response.
+    threading.Thread(
+        target=_refresh_drive_token_if_needed,
+        args=(owner_uid,),
+        daemon=True,
+    ).start()
+
     return jsonify({'success': True}), 200
+
+
+def _refresh_drive_token_if_needed(owner_uid):
+    try:
+        from datetime import datetime
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+
+        user_doc = db.collection('users').document(owner_uid).get()
+        creds_data = (user_doc.to_dict() or {}).get('driveCredentials')
+        if not creds_data:
+            return
+
+        expiry_str = creds_data.get('expiry')
+        expiry = datetime.fromisoformat(expiry_str).replace(tzinfo=None) if expiry_str else None
+        creds = Credentials(
+            token=creds_data['token'],
+            refresh_token=creds_data['refresh_token'],
+            token_uri=creds_data['token_uri'],
+            client_id=creds_data['client_id'],
+            client_secret=creds_data['client_secret'],
+            scopes=creds_data['scopes'],
+            expiry=expiry,
+        )
+        if not creds.valid:
+            creds.refresh(Request())
+            db.collection('users').document(owner_uid).update({
+                'driveCredentials.token': creds.token,
+                'driveCredentials.expiry': creds.expiry.isoformat() if creds.expiry else None,
+            })
+            logger.info("Proactively refreshed Drive token for owner %s", owner_uid)
+    except Exception:
+        logger.warning("Background Drive token refresh failed for owner %s", owner_uid, exc_info=True)
 
 
 @recording_bp.route('/upload/finalize', methods=['POST'])
@@ -118,6 +161,124 @@ def finalize():
     thread.start()
 
     return jsonify({'success': True}), 200
+
+
+def _park_merged_recording(session_id, slug, merged_path, session_ref, owner_uid):
+    """
+    Called when the Drive upload fails due to a revoked/expired refresh token.
+    Saves the already-merged file to Firebase Storage so no recording data is lost,
+    then marks the session as pending_drive_upload so the dashboard can retry
+    after the host reconnects Drive.
+    """
+    try:
+        parked_blob_path = f'recordings/{slug}/{session_id}/merged.webm'
+        bucket.blob(parked_blob_path).upload_from_filename(merged_path, content_type='audio/webm')
+        session_ref.update({
+            'status': 'pending_drive_upload',
+            'mergedBlobPath': parked_blob_path,
+        })
+        logger.info(
+            "Session %s: Drive token revoked — merged recording parked at %s for later upload",
+            session_id, parked_blob_path,
+        )
+    except Exception:
+        logger.exception("Session %s: failed to park merged recording after Drive auth error", session_id)
+        session_ref.update({'status': 'error'})
+
+
+@recording_bp.route('/retry-drive-upload/<session_id>', methods=['POST'])
+def retry_drive_upload(session_id):
+    """
+    Called from the dashboard after the host reconnects Google Drive.
+    Downloads the parked merged file from Firebase Storage and uploads it to Drive.
+    """
+    from auth_helper import verify_token
+    uid = verify_token(request)
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    session_ref = db.collection('recordingSessions').document(session_id)
+    session_data = session_ref.get().to_dict()
+    if not session_data or session_data.get('status') != 'pending_drive_upload':
+        return jsonify({'error': 'Session not pending Drive upload'}), 400
+    if session_data.get('ownerUid') != uid:
+        return jsonify({'error': 'Forbidden'}), 403
+
+    app = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_retry_drive_upload_bg,
+        args=(app, session_id),
+        daemon=True,
+    )
+    thread.start()
+    return jsonify({'success': True}), 200
+
+
+def _retry_drive_upload_bg(app, session_id):
+    with app.app_context():
+        session_ref = db.collection('recordingSessions').document(session_id)
+        try:
+            session_data = session_ref.get().to_dict()
+            owner_uid = session_data['ownerUid']
+            guest_name = session_data.get('guestName', 'Guest')
+            merged_blob_path = session_data['mergedBlobPath']
+
+            user_doc = db.collection('users').document(owner_uid).get()
+            creds_data = (user_doc.to_dict() or {}).get('driveCredentials')
+            if not creds_data:
+                logger.error("Session %s retry: no Drive credentials for owner %s", session_id, owner_uid)
+                session_ref.update({'status': 'error'})
+                return
+
+            from datetime import datetime
+            from google.oauth2.credentials import Credentials
+            from google.auth.transport.requests import Request
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaFileUpload
+
+            expiry_str = creds_data.get('expiry')
+            expiry = datetime.fromisoformat(expiry_str).replace(tzinfo=None) if expiry_str else None
+            creds = Credentials(
+                token=creds_data['token'],
+                refresh_token=creds_data['refresh_token'],
+                token_uri=creds_data['token_uri'],
+                client_id=creds_data['client_id'],
+                client_secret=creds_data['client_secret'],
+                scopes=creds_data['scopes'],
+                expiry=expiry,
+            )
+            if not creds.valid:
+                creds.refresh(Request())
+                db.collection('users').document(owner_uid).update({
+                    'driveCredentials.token': creds.token,
+                    'driveCredentials.expiry': creds.expiry.isoformat() if creds.expiry else None,
+                })
+
+            with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp:
+                merged_path = tmp.name
+            try:
+                bucket.blob(merged_blob_path).download_to_filename(merged_path)
+
+                drive_service = build('drive', 'v3', credentials=creds, static_discovery=True)
+                file_name = f'{guest_name}_{session_id}.webm'
+                use_resumable = os.path.getsize(merged_path) > 5 * 1024 * 1024
+                media = MediaFileUpload(merged_path, mimetype='audio/webm', resumable=use_resumable)
+                result = drive_service.files().create(
+                    body={'name': file_name},
+                    media_body=media,
+                    fields='id',
+                ).execute()
+                drive_file_id = result.get('id')
+            finally:
+                os.unlink(merged_path)
+
+            bucket.blob(merged_blob_path).delete()
+            session_ref.update({'status': 'complete', 'driveFileId': drive_file_id})
+            logger.info("Session %s retry: uploaded to Drive as %s", session_id, drive_file_id)
+
+        except Exception:
+            logger.exception("Session %s retry Drive upload failed", session_id)
+            session_ref.update({'status': 'error'})
 
 
 def _merge_and_upload(app, session_id):
@@ -215,21 +376,36 @@ def _merge_and_upload(app, session_id):
                     expiry=expiry,
                 )
 
-                if not creds.valid:
-                    creds.refresh(Request())
-                    logger.info("Session %s: Drive token refreshed", session_id)
+                from google.auth.exceptions import RefreshError as _RefreshError
 
-                drive_service = build('drive', 'v3', credentials=creds, static_discovery=True)
-                file_name = f'{guest_name}_{session_id}.webm'
-                file_metadata = {'name': file_name}
-                use_resumable = os.path.getsize(merged_path) > 5 * 1024 * 1024
-                media = MediaFileUpload(merged_path, mimetype='audio/webm', resumable=use_resumable)
-                result = drive_service.files().create(
-                    body=file_metadata,
-                    media_body=media,
-                    fields='id'
-                ).execute()
-                drive_file_id = result.get('id')
+                if not creds.valid:
+                    try:
+                        creds.refresh(Request())
+                        logger.info("Session %s: Drive token refreshed", session_id)
+                        db.collection('users').document(owner_uid).update({
+                            'driveCredentials.token': creds.token,
+                            'driveCredentials.expiry': creds.expiry.isoformat() if creds.expiry else None,
+                        })
+                    except _RefreshError:
+                        _park_merged_recording(session_id, slug, merged_path, session_ref, owner_uid)
+                        return
+
+                try:
+                    drive_service = build('drive', 'v3', credentials=creds, static_discovery=True)
+                    file_name = f'{guest_name}_{session_id}.webm'
+                    file_metadata = {'name': file_name}
+                    use_resumable = os.path.getsize(merged_path) > 5 * 1024 * 1024
+                    media = MediaFileUpload(merged_path, mimetype='audio/webm', resumable=use_resumable)
+                    result = drive_service.files().create(
+                        body=file_metadata,
+                        media_body=media,
+                        fields='id'
+                    ).execute()
+                    drive_file_id = result.get('id')
+                except _RefreshError:
+                    # Token expired mid-upload (long recordings exceed the 1hr access token TTL)
+                    _park_merged_recording(session_id, slug, merged_path, session_ref, owner_uid)
+                    return
 
             # Clean up chunks from Firebase Storage
             for i in range(expected_chunks):
